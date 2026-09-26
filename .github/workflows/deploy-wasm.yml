@@ -1,0 +1,133 @@
+# Build WebAssembly from the source repo and publish it to the
+# IsraelDXPP/pvz-advance-wasm Pages repo.
+#
+# Triggers:
+#   - repository_dispatch (event type: deploy-wasm, optional client_payload.source-ref)
+#   - workflow_dispatch (manual, optional source-ref, default widescreen-mp)
+#   - schedule (every 6h; skips the build when the deployed SHA is current)
+#
+# Requires the DEPLOY_TOKEN secret (PAT with contents:write on the
+# pvz-advance-wasm repo). PRIVATE_SOURCE_TOKEN (read on the source repo)
+# is reused for the source checkout.
+
+name: Deploy WASM to Pages
+
+on:
+  repository_dispatch:
+    types: [deploy-wasm]
+  workflow_dispatch:
+    inputs:
+      source-ref:
+        description: 'Branch or tag of the source repo to build'
+        required: false
+        default: 'widescreen-mp'
+  schedule:
+    - cron: '0 */6 * * *'
+
+concurrency:
+  group: wasm-deploy
+
+env:
+  SOURCE_REPO: IsraelDXPP/PvZ-Advance
+  WASM_REPO: IsraelDXPP/pvz-advance-wasm
+  DEFAULT_REF: widescreen-mp
+
+jobs:
+  deploy-wasm:
+    name: Build WASM and publish to Pages repo
+    runs-on: ubuntu-latest
+    steps:
+    - name: Resolve source ref and SHA
+      id: src
+      env:
+        DISPATCH_REF: ${{ github.event.client_payload.source-ref }}
+        INPUT_REF: ${{ inputs.source-ref }}
+      run: |
+        REF="${DISPATCH_REF:-${INPUT_REF:-$DEFAULT_REF}}"
+        echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        SHA=$(git ls-remote "https://x-access-token:${{ secrets.PRIVATE_SOURCE_TOKEN }}@github.com/${{ env.SOURCE_REPO }}.git" "$REF" | cut -f1)
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        echo "Building $REF @ $SHA"
+
+    - name: Check deployed SHA (skip when current)
+      id: deployed
+      run: |
+        git clone --depth 1 "https://x-access-token:${{ secrets.DEPLOY_TOKEN }}@github.com/${{ env.WASM_REPO }}.git" wasm-site
+        if [ -f wasm-site/.source-sha ]; then
+          OLD=$(cat wasm-site/.source-sha)
+        else
+          OLD=""
+        fi
+        echo "old=$OLD" >> "$GITHUB_OUTPUT"
+        if [ -n "$OLD" ] && [ "$OLD" = "${{ steps.src.outputs.sha }}" ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "Already deployed ${{ steps.src.outputs.sha }}, skipping build."
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: actions/checkout@v6
+      if: steps.deployed.outputs.skip != 'true'
+      with:
+        repository: ${{ env.SOURCE_REPO }}
+        token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+        ref: ${{ steps.src.outputs.ref }}
+        fetch-depth: 0
+
+    - name: Setup Emscripten
+      if: steps.deployed.outputs.skip != 'true'
+      uses: emscripten-core/setup-emsdk@v16
+
+    - name: Install Build Tools
+      if: steps.deployed.outputs.skip != 'true'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build
+
+    - name: Build libopenmpt for Emscripten
+      if: steps.deployed.outputs.skip != 'true'
+      run: |
+        SYSROOT="$(em-config EMSCRIPTEN_ROOT)/cache/sysroot"
+        OPENMPT_TAG=$(git ls-remote --tags https://github.com/OpenMPT/openmpt.git 'refs/tags/libopenmpt-*' \
+          | sed 's|.*refs/tags/libopenmpt-||' \
+          | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+        if [ -z "$OPENMPT_TAG" ]; then
+          OPENMPT_TAG="0.8.4" # Fallback to a known stable version if tag retrieval fails
+        fi
+        echo "Using libopenmpt version: $OPENMPT_TAG"
+        git clone --depth=1 --branch "libopenmpt-${OPENMPT_TAG}" https://github.com/OpenMPT/openmpt.git /tmp/libopenmpt-src
+        cd /tmp/libopenmpt-src
+        emmake make CONFIG=emscripten \
+          STATIC_LIB=1 SHARED_LIB=0 \
+          EXAMPLES=0 OPENMPT123=0 TEST=0 \
+          NO_ZLIB=1 NO_MPG123=1 NO_OGG=1 NO_VORBIS=1 NO_VORBISFILE=1 \
+          NO_PORTAUDIO=1 NO_PORTAUDIOCPP=1 NO_PULSEAUDIO=1 \
+          NO_SDL2=1 NO_FLAC=1 NO_SNDFILE=1 \
+          -j$(nproc)
+        emmake make CONFIG=emscripten \
+          STATIC_LIB=1 SHARED_LIB=0 \
+          EXAMPLES=0 OPENMPT123=0 TEST=0 \
+          PREFIX="${SYSROOT}" install
+
+    - name: Build PvZ-Advance for WebAssembly
+      if: steps.deployed.outputs.skip != 'true'
+      run: |
+        mkdir build-wasm
+        emcmake cmake -G Ninja -B build-wasm -DCMAKE_BUILD_TYPE=Release
+        cmake --build build-wasm -j$(nproc)
+
+    - name: Publish to Pages repo
+      if: steps.deployed.outputs.skip != 'true'
+      run: |
+        cp build-wasm/pvz-advance.html build-wasm/pvz-advance.js build-wasm/pvz-advance.wasm wasm-site/
+        echo -n "${{ steps.src.outputs.sha }}" > wasm-site/.source-sha
+        cd wasm-site
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add pvz-advance.html pvz-advance.js pvz-advance.wasm .source-sha
+        if git diff --cached --quiet; then
+          echo "No changes to deploy."
+        else
+          git commit -m "deploy ${{ steps.src.outputs.ref }} @ ${{ steps.src.outputs.sha }}"
+          git push origin main
+        fi
