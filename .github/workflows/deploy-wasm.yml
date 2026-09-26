@@ -117,8 +117,24 @@ jobs:
       if: steps.deployed.outputs.skip != 'true'
       run: |
         mkdir build-wasm
-        emcmake cmake -G Ninja -B build-wasm -DCMAKE_BUILD_TYPE=Release
+        # -Oz: smaller binary (harder to skim than -O3 output).
+        # --closure 1: minify/mangle the JS glue with Closure.
+        emcmake cmake -G Ninja -B build-wasm -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_FLAGS="-Oz" -DCMAKE_CXX_FLAGS="-Oz" \
+          -DCMAKE_EXE_LINKER_FLAGS="--closure 1"
         cmake --build build-wasm -j$(nproc)
+
+    - name: Strip wasm metadata
+      if: steps.deployed.outputs.skip != 'true'
+      run: |
+        # Drop debug/producer sections (names already stripped in Release,
+        # this removes the remaining metadata envelopes).
+        if command -v wasm-opt >/dev/null 2>&1; then
+          wasm-opt build-wasm/pvz-advance.wasm -o build-wasm/pvz-advance.wasm \
+            -Oz --strip-debug --strip-producers
+        else
+          echo "wasm-opt not on PATH, skipping strip."
+        fi
 
     - name: Publish to Pages repo
       if: steps.deployed.outputs.skip != 'true'
