@@ -125,10 +125,12 @@ jobs:
       if: steps.deployed.outputs.skip != 'true'
       run: |
         mkdir build-wasm
-        # -Oz: smaller binary (harder to skim than -O3 output).
+        # -Oz: smaller binary (harder to skim than -O3 output). NOTE: it must
+        # go in CMAKE_*_FLAGS_RELEASE: plain CMAKE_CXX_FLAGS loses against the
+        # -O3 that the Release config appends after it.
         # --closure 1: minify/mangle the JS glue with Closure.
         emcmake cmake -G Ninja -B build-wasm -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_C_FLAGS="-Oz" -DCMAKE_CXX_FLAGS="-Oz" \
+          -DCMAKE_C_FLAGS_RELEASE="-Oz" -DCMAKE_CXX_FLAGS_RELEASE="-Oz" \
           -DCMAKE_EXE_LINKER_FLAGS="--closure 1"
         cmake --build build-wasm -j$(nproc)
 
