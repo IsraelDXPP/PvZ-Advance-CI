@@ -21,6 +21,11 @@ on:
         description: 'Branch or tag of the source repo to build'
         required: false
         default: 'widescreen-mp'
+      force:
+        description: 'Rebuild even if the deployed SHA is current'
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: '0 */6 * * *'
 
@@ -63,7 +68,10 @@ jobs:
           OLD=""
         fi
         echo "old=$OLD" >> "$GITHUB_OUTPUT"
-        if [ -n "$OLD" ] && [ "$OLD" = "${{ steps.src.outputs.sha }}" ]; then
+        if [ "${{ inputs.force }}" = "true" ]; then
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Forced rebuild requested."
+        elif [ -n "$OLD" ] && [ "$OLD" = "${{ steps.src.outputs.sha }}" ]; then
           echo "skip=true" >> "$GITHUB_OUTPUT"
           echo "Already deployed ${{ steps.src.outputs.sha }}, skipping build."
         else
