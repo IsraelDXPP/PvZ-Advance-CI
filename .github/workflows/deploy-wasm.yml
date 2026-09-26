@@ -52,9 +52,13 @@ jobs:
     - name: Check deployed SHA (skip when current)
       id: deployed
       run: |
-        git clone --depth 1 "https://x-access-token:${{ secrets.DEPLOY_TOKEN }}@github.com/${{ env.WASM_REPO }}.git" wasm-site
-        if [ -f wasm-site/.source-sha ]; then
-          OLD=$(cat wasm-site/.source-sha)
+        # NOTE: cloned outside $GITHUB_WORKSPACE on purpose: the
+        # actions/checkout step below cleans the workspace by default and
+        # would wipe an in-workspace clone.
+        rm -rf /tmp/wasm-site
+        git clone --depth 1 "https://x-access-token:${{ secrets.DEPLOY_TOKEN }}@github.com/${{ env.WASM_REPO }}.git" /tmp/wasm-site
+        if [ -f /tmp/wasm-site/.source-sha ]; then
+          OLD=$(cat /tmp/wasm-site/.source-sha)
         else
           OLD=""
         fi
@@ -119,9 +123,9 @@ jobs:
     - name: Publish to Pages repo
       if: steps.deployed.outputs.skip != 'true'
       run: |
-        cp build-wasm/pvz-advance.html build-wasm/pvz-advance.js build-wasm/pvz-advance.wasm wasm-site/
-        echo -n "${{ steps.src.outputs.sha }}" > wasm-site/.source-sha
-        cd wasm-site
+        cp build-wasm/pvz-advance.html build-wasm/pvz-advance.js build-wasm/pvz-advance.wasm /tmp/wasm-site/
+        echo -n "${{ steps.src.outputs.sha }}" > /tmp/wasm-site/.source-sha
+        cd /tmp/wasm-site
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git add pvz-advance.html pvz-advance.js pvz-advance.wasm .source-sha
