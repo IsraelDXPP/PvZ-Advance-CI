@@ -1,9 +1,16 @@
-# CI build para el repo PUBLICO SaMeiers/pvz-greatwall (PvZ Great Wall Edition).
+# CI build para SaMeiers/pvz-greatwall (PvZ Great Wall Edition, repo PRIVADO).
 #
-# Mismo sistema que build.yml pero sin fuente privada: checkout directo del repo
-# publico (sin tokens) y tres plataformas: PC (Windows MinGW), iOS (IPA ad-hoc)
-# y Android (APK debug). Las recetas son las de pvz-greatwall:
-# .github/workflows/pc.yml, ios.yml y tools/android_apk.py.
+# Mismo sistema que build.yml: checkout del repo fuente con token y tres
+# plataformas: PC (Windows MinGW), iOS (IPA ad-hoc) y Android (APK debug).
+# Las recetas son las de pvz-greatwall: .github/workflows/pc.yml, ios.yml
+# y tools/android_apk.py.
+#
+# Setup (una sola vez, como PRIVATE_SOURCE_TOKEN de build.yml):
+#   1. Crear un fine-grained PAT con Contents: Read EN SaMeiers/pvz-greatwall
+#      (Settings > Developer settings > Personal access tokens > Fine-grained:
+#      solo ese repo, solo lectura de contenidos, sin permisos extra)
+#   2. Agregarlo como GREATWALL_SOURCE_TOKEN en este repo
+#      (Settings > Secrets and variables > Actions > New repository secret)
 
 name: CI build (PvZ Great Wall)
 
@@ -33,6 +40,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         repository: ${{ env.GREATWALL_REPO }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN }}
         ref: ${{ inputs.source-ref || github.ref_name }}
         fetch-depth: 0
 
@@ -76,6 +84,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         repository: ${{ env.GREATWALL_REPO }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN }}
         ref: ${{ inputs.source-ref || github.ref_name }}
         fetch-depth: 0
 
@@ -168,6 +177,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         repository: ${{ env.GREATWALL_REPO }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN }}
         ref: ${{ inputs.source-ref || github.ref_name }}
         fetch-depth: 0
 
