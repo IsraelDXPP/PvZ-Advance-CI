@@ -1,0 +1,231 @@
+# CI build para el repo PUBLICO SaMeiers/pvz-greatwall (PvZ Great Wall Edition).
+#
+# Mismo sistema que build.yml pero sin fuente privada: checkout directo del repo
+# publico (sin tokens) y tres plataformas: PC (Windows MinGW), iOS (IPA ad-hoc)
+# y Android (APK debug). Las recetas son las de pvz-greatwall:
+# .github/workflows/pc.yml, ios.yml y tools/android_apk.py.
+
+name: CI build (PvZ Great Wall)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source-ref:
+        description: 'Branch or tag of SaMeiers/pvz-greatwall to build'
+        required: true
+        default: 'main'
+  push:
+    branches: [ "main" ]
+    tags: [ "*" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GREATWALL_REPO: SaMeiers/pvz-greatwall
+
+jobs:
+  build-greatwall-windows:
+    name: Great Wall for Windows (MinGW x64)
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ env.GREATWALL_REPO }}
+        ref: ${{ inputs.source-ref || github.ref_name }}
+        fetch-depth: 0
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-ninja
+          mingw-w64-x86_64-SDL2
+          mingw-w64-x86_64-zlib
+
+    - name: Compile PvZ Great Wall for Windows
+      shell: msys2 {0}
+      run: |
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --target pvz-greatwall
+
+        mkdir -p dist
+        cp build/pvz-greatwall.exe dist/
+        cp /mingw64/bin/SDL2.dll dist/
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: pvzgreatwall-windows
+        path: dist/
+
+  build-greatwall-ios:
+    name: Great Wall for iOS (arm64)
+    runs-on: macos-15
+    env:
+      IPA_ITEM: pvz-great-wall-edition-ios-ipa
+      IPA_NAME: "(TeoGaming201) PvZ GWE iPhone.ipa"
+      IPHONE_APP: "Payload/PvZ-iPhone_ZH.app"
+      DEPLOYMENT_TARGET: "15.0"
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ env.GREATWALL_REPO }}
+        ref: ${{ inputs.source-ref || github.ref_name }}
+        fetch-depth: 0
+
+    - name: Xcode y herramientas
+      run: |
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-path
+        which ninja || brew install ninja
+        python3 --version
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Dependencias Python (generadores de tablas)
+      run: python3 -m pip install capstone unicorn
+
+    - name: Cache de assets y binario
+      uses: actions/cache@v4
+      with:
+        path: |
+          assets/iphone
+          bin/PvZ-iPhone_ZH_1.9.12
+        key: gwe-assets-v1
+
+    - name: Binario para los generadores
+      run: |
+        mkdir -p bin
+        if [ ! -f bin/PvZ-iPhone_ZH_1.9.12 ]; then
+          python3 tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --get "$IPHONE_APP/PvZ-iPhone_ZH" --out bin/PvZ-iPhone_ZH_1.9.12
+        fi
+
+    - name: Assets del juego
+      run: |
+        if [ ! -f assets/iphone/main.rsb ]; then
+          python3 tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --extract assets/iphone --strip "$IPHONE_APP/" \
+            --match "PvZ-iPhone_ZH\.app/(main\.rsb|properties/|zh-Hans\.lproj/|compiled/|music/|store\.plist|Info\.plist)"
+        fi
+
+    - name: Tablas derivadas del binario
+      run: |
+        mkdir -p data/generated
+        python3 tools/macho_symbols.py bin/PvZ-iPhone_ZH_1.9.12 --stabs > data/debugmap_iphone.tsv
+        python3 tools/macho_symbols.py bin/PvZ-iPhone_ZH_1.9.12 > data/gwe_iphone_symbols.txt
+        python3 tools/resgen.py
+        python3 tools/layoutconsts.py
+        python3 tools/subgroups.py
+        python3 tools/lawntables.py
+
+    - name: Configurar (iOS arm64)
+      run: |
+        cmake -S . -B build-ios -G Ninja \
+          -DCMAKE_TOOLCHAIN_FILE=cmake/ios.toolchain.cmake \
+          -DCMAKE_BUILD_TYPE=Release
+
+    - name: Compilar
+      run: cmake --build build-ios --target pvz-greatwall
+
+    - name: Empaquetar .app
+      run: |
+        EXE=build-ios/pvz-greatwall.app/pvz-greatwall
+        APP=Payload/PvZGreatWall.app
+        rm -rf Payload
+        mkdir -p "$APP/Base.lproj"
+        cp "$EXE" "$APP/pvz-greatwall"
+        cp ios/Info.plist "$APP/"
+        ibtool --compile "$APP/Base.lproj/LaunchScreen.storyboardc" ios/LaunchScreen.storyboard
+        for f in assets/iphone/*; do
+          [ "$(basename "$f")" = "Info.plist" ] || cp -R "$f" "$APP/"
+        done
+
+    - name: Firma ad-hoc e IPA
+      run: |
+        codesign --force --deep --sign - --timestamp=none Payload/PvZGreatWall.app
+        codesign --verify --deep --strict Payload/PvZGreatWall.app
+        zip -qry PvZGreatWall-unsigned.ipa Payload
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: pvzgreatwall-ios
+        path: PvZGreatWall-unsigned.ipa
+
+  build-greatwall-android:
+    name: Great Wall for Android (arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ env.GREATWALL_REPO }}
+        ref: ${{ inputs.source-ref || github.ref_name }}
+        fetch-depth: 0
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v4
+
+    - name: Plataforma, build-tools y NDK
+      run: |
+        yes | sdkmanager --licenses > /dev/null
+        sdkmanager --install "platforms;android-34" "build-tools;35.0.0" "ndk;27.0.12077973"
+
+    - name: APK (nativo + dex + firma debug)
+      run: python3 tools/android_apk.py --out PvZGreatWall-debug.apk
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: pvzgreatwall-android
+        path: PvZGreatWall-debug.apk
+
+  release:
+    name: Release (PvZ Great Wall)
+    needs: ['build-greatwall-windows', 'build-greatwall-ios', 'build-greatwall-android']
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare Release Files
+      run: |
+        mkdir release_files
+        mv artifacts/pvzgreatwall-windows/pvz-greatwall.exe release_files/pvzgreatwall-windows-x86_64.exe
+        mv artifacts/pvzgreatwall-windows/SDL2.dll release_files/SDL2.dll
+        mv artifacts/pvzgreatwall-ios/PvZGreatWall-unsigned.ipa release_files/pvzgreatwall-ios-arm64.ipa
+        mv artifacts/pvzgreatwall-android/PvZGreatWall-debug.apk release_files/pvzgreatwall-android-arm64-v8a.apk
+        ls -lh release_files/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release_files/*
+        tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'greatwall-latest' }}
+        name: ${{ github.ref_type == 'tag' && github.ref_name || 'PvZ Great Wall (latest)' }}
+        generate_release_notes: true
+        draft: false
+        prerelease: ${{ github.ref_type != 'tag' }}
