@@ -40,7 +40,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         repository: ${{ env.GREATWALL_REPO }}
-        token: ${{ secrets.GREATWALL_SOURCE_TOKEN }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN || github.token }}
         ref: ${{ inputs.source-ref || github.ref_name }}
         fetch-depth: 0
 
@@ -84,7 +84,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         repository: ${{ env.GREATWALL_REPO }}
-        token: ${{ secrets.GREATWALL_SOURCE_TOKEN }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN || github.token }}
         ref: ${{ inputs.source-ref || github.ref_name }}
         fetch-depth: 0
 
@@ -177,7 +177,7 @@ jobs:
     - uses: actions/checkout@v6
       with:
         repository: ${{ env.GREATWALL_REPO }}
-        token: ${{ secrets.GREATWALL_SOURCE_TOKEN }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN || github.token }}
         ref: ${{ inputs.source-ref || github.ref_name }}
         fetch-depth: 0
 
