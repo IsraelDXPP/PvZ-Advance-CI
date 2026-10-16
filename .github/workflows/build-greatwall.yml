@@ -154,6 +154,7 @@ jobs:
         cp "$EXE" "$APP/pvz-greatwall"
         cp ios/Info.plist "$APP/"
         ibtool --compile "$APP/Base.lproj/LaunchScreen.storyboardc" ios/LaunchScreen.storyboard
+          xcrun actool --compile "$APP" --platform iphoneos --minimum-deployment-target 15.0 --target-device iphone --target-device ipad --app-icon AppIcon --output-format human-readable-text ios/Assets.xcassets
         for f in assets/iphone/*; do
           [ "$(basename "$f")" = "Info.plist" ] || cp -R "$f" "$APP/"
         done
@@ -236,13 +237,13 @@ jobs:
         ls data/generated/
 
     - name: APK (nativo + dex + firma debug)
-      run: python3 tools/android_apk.py --out PvZGreatWall-debug.apk
+      run: python3 tools/android_apk.py --out PvZGreatWall.apk
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v7
       with:
         name: pvzgreatwall-android
-        path: PvZGreatWall-debug.apk
+        path: PvZGreatWall.apk
 
   release:
     name: Release (PvZ Great Wall)
@@ -263,7 +264,7 @@ jobs:
         mv artifacts/pvzgreatwall-windows/pvz-greatwall.exe release_files/pvzgreatwall-windows-x86_64.exe
         mv artifacts/pvzgreatwall-windows/SDL2.dll release_files/SDL2.dll
         mv artifacts/pvzgreatwall-ios/PvZGreatWall-unsigned.ipa release_files/pvzgreatwall-ios-arm64.ipa
-        mv artifacts/pvzgreatwall-android/PvZGreatWall-debug.apk release_files/pvzgreatwall-android-arm64-v8a.apk
+        mv artifacts/pvzgreatwall-android/PvZGreatWall.apk release_files/pvzgreatwall-android-arm64-v8a.apk
         ls -lh release_files/
 
     - name: Create Release
