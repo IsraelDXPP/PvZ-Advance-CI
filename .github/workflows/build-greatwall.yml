@@ -173,6 +173,10 @@ jobs:
   build-greatwall-android:
     name: Great Wall for Android (arm64-v8a)
     runs-on: ubuntu-latest
+    env:
+      IPA_ITEM: pvz-great-wall-edition-ios-ipa
+      IPA_NAME: "(TeoGaming201) PvZ GWE iPhone.ipa"
+      IPHONE_APP: "Payload/PvZ-iPhone_ZH.app"
     steps:
     - uses: actions/checkout@v6
       with:
@@ -198,6 +202,38 @@ jobs:
       run: |
         yes | sdkmanager --licenses > /dev/null
         sdkmanager --install "platforms;android-34" "build-tools;35.0.0" "ndk;27.0.12077973"
+
+    - name: Dependencias Python (generadores de tablas)
+      run: python3 -m pip install capstone unicorn
+
+    - name: Cache de assets y binario
+      uses: actions/cache@v4
+      with:
+        path: |
+          assets/iphone
+          bin/PvZ-iPhone_ZH_1.9.12
+        key: gwe-assets-v1
+
+    # Sin data/generated el empaquetado se niega (el juego saldria con tablas vacias)
+    - name: Binario, assets y tablas derivadas del binario
+      run: |
+        mkdir -p bin data/generated
+        if [ ! -f bin/PvZ-iPhone_ZH_1.9.12 ]; then
+          python3 tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --get "$IPHONE_APP/PvZ-iPhone_ZH" --out bin/PvZ-iPhone_ZH_1.9.12
+        fi
+        if [ ! -f assets/iphone/main.rsb ]; then
+          python3 tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --extract assets/iphone --strip "$IPHONE_APP/" \
+            --match "PvZ-iPhone_ZH\.app/(main\.rsb|properties/|zh-Hans\.lproj/|compiled/|music/|store\.plist|Info\.plist)"
+        fi
+        python3 tools/macho_symbols.py bin/PvZ-iPhone_ZH_1.9.12 --stabs > data/debugmap_iphone.tsv
+        python3 tools/macho_symbols.py bin/PvZ-iPhone_ZH_1.9.12 > data/gwe_iphone_symbols.txt
+        python3 tools/resgen.py
+        python3 tools/layoutconsts.py
+        python3 tools/subgroups.py
+        python3 tools/lawntables.py
+        ls data/generated/
 
     - name: APK (nativo + dex + firma debug)
       run: python3 tools/android_apk.py --out PvZGreatWall-debug.apk
