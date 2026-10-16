@@ -154,7 +154,7 @@ jobs:
         cp "$EXE" "$APP/pvz-greatwall"
         cp ios/Info.plist "$APP/"
         ibtool --compile "$APP/Base.lproj/LaunchScreen.storyboardc" ios/LaunchScreen.storyboard
-          xcrun actool --compile "$APP" --platform iphoneos --minimum-deployment-target 15.0 --target-device iphone --target-device ipad --app-icon AppIcon --output-format human-readable-text ios/Assets.xcassets
+          xcrun actool --compile "$APP" --platform iphoneos --minimum-deployment-target 15.0 --target-device iphone --target-device ipad --app-icon AppIcon --output-partial-info-plist /tmp/actool-partial.plist --output-format human-readable-text ios/Assets.xcassets
         for f in assets/iphone/*; do
           [ "$(basename "$f")" = "Info.plist" ] || cp -R "$f" "$APP/"
         done
