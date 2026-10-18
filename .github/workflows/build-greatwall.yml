@@ -36,6 +36,10 @@ jobs:
   build-greatwall-windows:
     name: Great Wall for Windows (MinGW x64)
     runs-on: windows-latest
+    env:
+      IPA_ITEM: pvz-great-wall-edition-ios-ipa
+      IPA_NAME: "(TeoGaming201) PvZ GWE iPhone.ipa"
+      IPHONE_APP: "Payload/PvZ-iPhone_ZH.app"
     steps:
     - uses: actions/checkout@v6
       with:
@@ -56,15 +60,64 @@ jobs:
           mingw-w64-x86_64-SDL2
           mingw-w64-x86_64-zlib
 
+    - name: Dependencias Python (generadores de tablas)
+      shell: bash
+      run: python -m pip install capstone unicorn
+
+    - name: Cache de assets y binario
+      uses: actions/cache@v4
+      with:
+        path: |
+          assets/iphone
+          bin/PvZ-iPhone_ZH_1.9.12
+        key: gwe-assets-v1
+
+    # Sin data/generated CMake solo avisa y el juego sale con tablas vacias
+    - name: Binario, assets y tablas derivadas del binario
+      shell: bash
+      run: |
+        mkdir -p bin data/generated
+        if [ ! -f bin/PvZ-iPhone_ZH_1.9.12 ]; then
+          python tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --get "$IPHONE_APP/PvZ-iPhone_ZH" --out bin/PvZ-iPhone_ZH_1.9.12
+        fi
+        if [ ! -f assets/iphone/main.rsb ]; then
+          python tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --extract assets/iphone --strip "$IPHONE_APP/" \
+            --match "PvZ-iPhone_ZH\.app/(main\.rsb|properties/|zh-Hans\.lproj/|compiled/|music/|store\.plist|Info\.plist)"
+        fi
+        python tools/macho_symbols.py bin/PvZ-iPhone_ZH_1.9.12 --stabs > data/debugmap_iphone.tsv
+        python tools/macho_symbols.py bin/PvZ-iPhone_ZH_1.9.12 > data/gwe_iphone_symbols.txt
+        python tools/resgen.py
+        python tools/layoutconsts.py
+        python tools/subgroups.py
+        python tools/lawntables.py
+        ls data/generated/
+
     - name: Compile PvZ Great Wall for Windows
       shell: msys2 {0}
       run: |
         cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-        cmake --build build --target pvz-greatwall
+        cmake --build build --target pvz-greatwall modes_smoke_test izombie_test
 
+    - name: Humo rapido (modos 1x1 + izombie)
+      shell: msys2 {0}
+      env:
+        SDL_VIDEODRIVER: dummy
+        SDL_AUDIODRIVER: dummy
+        GWE_DATA_PATH: assets/iphone
+        GWE_SAVE_PATH: build/pc_smoke_data
+      run: |
+        ./build/modes_smoke_test.exe 118 118 60
+        ./build/izombie_test.exe
+
+    - name: Empaquetar (.exe + SDL2.dll + zlib1.dll)
+      shell: msys2 {0}
+      run: |
         mkdir -p dist
         cp build/pvz-greatwall.exe dist/
-        cp /mingw64/bin/SDL2.dll dist/
+        # libstdc++/libgcc/winpthread van estaticos; SDL2 y zlib no (objdump -p)
+        cp /mingw64/bin/SDL2.dll /mingw64/bin/zlib1.dll dist/
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v7
@@ -147,17 +200,30 @@ jobs:
 
     - name: Empaquetar .app
       run: |
+        git rev-parse HEAD
         EXE=build-ios/pvz-greatwall.app/pvz-greatwall
+        file "$EXE"
+        echo "--- fuente:"; grep -c 'gwe: main' src/Lawn/LawnMain.cpp
+        echo "--- objeto:"; strings build-ios/CMakeFiles/pvz-greatwall.dir/src/Lawn/LawnMain.cpp.o | grep -c "gwe: " || true
+        echo "--- simbolos main (uno de cada uno):"; nm "$EXE" | grep -E " T _main$| T _SDL_main$" || (echo "FALTA main/SDL_main" && exit 1)
+        echo "--- exe:"; strings "$EXE" | grep -c "gwe: " || (echo "FALTA logging en el binario" && exit 1)
         APP=Payload/PvZGreatWall.app
         rm -rf Payload
         mkdir -p "$APP/Base.lproj"
         cp "$EXE" "$APP/pvz-greatwall"
         cp ios/Info.plist "$APP/"
+        # Los iconos los pone actool desde ios/Assets.xcassets (Icon*.png sueltos ya no existen)
         ibtool --compile "$APP/Base.lproj/LaunchScreen.storyboardc" ios/LaunchScreen.storyboard
-          xcrun actool --compile "$APP" --platform iphoneos --minimum-deployment-target 15.0 --target-device iphone --target-device ipad --app-icon AppIcon --output-partial-info-plist /tmp/actool-partial.plist --output-format human-readable-text ios/Assets.xcassets
+        xcrun actool --compile "$APP" --platform iphoneos --minimum-deployment-target 15.0 --target-device iphone --target-device ipad --app-icon AppIcon --output-partial-info-plist /tmp/actool-partial.plist --output-format human-readable-text ios/Assets.xcassets
+        # El icono lo busca el sistema por el nombre del set de assets (CFBundleIconName
+        # = AppIcon en el Info.plist nuestro); lo que escribe actool en el plist parcial
+        # son los nombres de los PNG sueltos, que aqui no se copian al .app
+        plutil -lint "$APP/Info.plist"
+        # Todo menos el Info.plist original del IPA (2012): solo vale el nuestro
         for f in assets/iphone/*; do
           [ "$(basename "$f")" = "Info.plist" ] || cp -R "$f" "$APP/"
         done
+        ls "$APP" | head -20
 
     - name: Firma ad-hoc e IPA
       run: |
@@ -239,6 +305,12 @@ jobs:
     - name: APK (nativo + dex + firma debug)
       run: python3 tools/android_apk.py --out PvZGreatWall.apk
 
+    - name: Verificar firma y contenido
+      run: |
+        APKSIGNER=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | head -1)
+        "$APKSIGNER" verify PvZGreatWall.apk
+        unzip -l PvZGreatWall.apk | grep -E "classes.dex|lib/arm64-v8a/lib(main|SDL2)|assets/main.rsb|mipmap-xxxhdpi" || true
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v7
       with:
@@ -263,6 +335,7 @@ jobs:
         mkdir release_files
         mv artifacts/pvzgreatwall-windows/pvz-greatwall.exe release_files/pvzgreatwall-windows-x86_64.exe
         mv artifacts/pvzgreatwall-windows/SDL2.dll release_files/SDL2.dll
+        mv artifacts/pvzgreatwall-windows/zlib1.dll release_files/zlib1.dll
         mv artifacts/pvzgreatwall-ios/PvZGreatWall-unsigned.ipa release_files/pvzgreatwall-ios-arm64.ipa
         mv artifacts/pvzgreatwall-android/PvZGreatWall.apk release_files/pvzgreatwall-android-arm64-v8a.apk
         ls -lh release_files/
