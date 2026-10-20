@@ -317,9 +317,291 @@ jobs:
         name: pvzgreatwall-android
         path: PvZGreatWall.apk
 
+  # La variante del iPad (GWE HD 1.9.10, docs/ipad.md del repo fuente): su propio
+  # IPA (los assets y el binario del HD), sus tablas con --ipad y -DGWE_TARGET=ipad,
+  # su icono (el del HD) y su nombre de app (el del IPA del iPad).
+  build-greatwall-ipad-windows:
+    name: Great Wall HD (iPad) for Windows (MinGW x64)
+    runs-on: windows-latest
+    env:
+      IPA_ITEM: pvz-great-wall-edition-ios-ipa
+      IPA_NAME: "(TeoGaming201) PvZ GWE HD iPad.ipa"
+      IPAD_APP: "Payload/PvZ-iPad_ZH.app"
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ env.GREATWALL_REPO }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN || github.token }}
+        ref: ${{ inputs.source-ref || github.ref_name }}
+        fetch-depth: 0
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-ninja
+          mingw-w64-x86_64-SDL2
+          mingw-w64-x86_64-zlib
+
+    - name: Dependencias Python (generadores de tablas)
+      shell: bash
+      run: python -m pip install capstone unicorn
+
+    - name: Cache de assets y binario
+      uses: actions/cache@v4
+      with:
+        path: |
+          assets/ipad
+          bin/PvZ-iPad_ZH_1.9.10
+        key: gwe-assets-ipad-v1
+
+    - name: Binario, assets y tablas derivadas del binario del iPad
+      shell: bash
+      run: |
+        mkdir -p bin data/generated/ipad
+        if [ ! -f bin/PvZ-iPad_ZH_1.9.10 ]; then
+          python tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --get "$IPAD_APP/PvZ-iPad_ZH" --out bin/PvZ-iPad_ZH_1.9.10
+        fi
+        if [ ! -f assets/ipad/main.rsb ]; then
+          python tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --extract assets/ipad --strip "$IPAD_APP/" \
+            --match "PvZ-iPad_ZH\.app/(main\.rsb|properties/|zh-Hans\.lproj/|compiled/|music/|store\.plist)"
+        fi
+        python tools/macho_symbols.py bin/PvZ-iPad_ZH_1.9.10 --stabs > data/debugmap_ipad.tsv
+        python tools/macho_symbols.py bin/PvZ-iPad_ZH_1.9.10 > data/gwe_ipad_symbols.txt
+        python tools/resgen.py --ipad
+        python tools/resglobals.py --ipad
+        python tools/layoutconsts.py --ipad
+        python tools/subgroups.py --ipad
+        python tools/lawntables.py --ipad
+        ls data/generated/ipad/
+
+    - name: Compile PvZ Great Wall HD (iPad) for Windows
+      shell: msys2 {0}
+      run: |
+        cmake -S . -B build -G Ninja -DGWE_TARGET=ipad -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --target pvz-greatwall modes_smoke_test izombie_test
+
+    - name: Humo rapido (Portal Combat + izombie)
+      shell: msys2 {0}
+      env:
+        SDL_VIDEODRIVER: dummy
+        SDL_AUDIODRIVER: dummy
+        GWE_DATA_PATH: assets/ipad
+        GWE_SAVE_PATH: build/pc_smoke_data
+      run: |
+        ./build/modes_smoke_test.exe 74 74 60
+        ./build/izombie_test.exe
+
+    - name: Empaquetar (.exe + SDL2.dll + zlib1.dll)
+      shell: msys2 {0}
+      run: |
+        mkdir -p dist
+        cp build/pvz-greatwall.exe dist/
+        cp /mingw64/bin/SDL2.dll /mingw64/bin/zlib1.dll dist/
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: pvzgreatwall-hd-windows
+        path: dist/
+
+  build-greatwall-ipad-ios:
+    name: Great Wall HD (iPad) for iOS (arm64)
+    runs-on: macos-15
+    env:
+      IPA_ITEM: pvz-great-wall-edition-ios-ipa
+      IPA_NAME: "(TeoGaming201) PvZ GWE HD iPad.ipa"
+      IPAD_APP: "Payload/PvZ-iPad_ZH.app"
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ env.GREATWALL_REPO }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN || github.token }}
+        ref: ${{ inputs.source-ref || github.ref_name }}
+        fetch-depth: 0
+
+    - name: Xcode y herramientas
+      run: |
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-path
+        which ninja || brew install ninja
+        python3 --version
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Dependencias Python (generadores de tablas)
+      run: python3 -m pip install capstone unicorn
+
+    - name: Cache de assets y binario
+      uses: actions/cache@v4
+      with:
+        path: |
+          assets/ipad
+          bin/PvZ-iPad_ZH_1.9.10
+        key: gwe-assets-ipad-v1
+
+    - name: Binario para los generadores
+      run: |
+        mkdir -p bin
+        if [ ! -f bin/PvZ-iPad_ZH_1.9.10 ]; then
+          python3 tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --get "$IPAD_APP/PvZ-iPad_ZH" --out bin/PvZ-iPad_ZH_1.9.10
+        fi
+
+    - name: Assets del juego
+      run: |
+        if [ ! -f assets/ipad/main.rsb ]; then
+          python3 tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --extract assets/ipad --strip "$IPAD_APP/" \
+            --match "PvZ-iPad_ZH\.app/(main\.rsb|properties/|zh-Hans\.lproj/|compiled/|music/|store\.plist)"
+        fi
+
+    - name: Tablas derivadas del binario del iPad
+      run: |
+        mkdir -p data/generated/ipad
+        python3 tools/macho_symbols.py bin/PvZ-iPad_ZH_1.9.10 --stabs > data/debugmap_ipad.tsv
+        python3 tools/macho_symbols.py bin/PvZ-iPad_ZH_1.9.10 > data/gwe_ipad_symbols.txt
+        python3 tools/resgen.py --ipad
+        python3 tools/resglobals.py --ipad
+        python3 tools/layoutconsts.py --ipad
+        python3 tools/subgroups.py --ipad
+        python3 tools/lawntables.py --ipad
+
+    - name: Configurar (iOS arm64, GWE_TARGET=ipad)
+      run: |
+        cmake -S . -B build-ios -G Ninja \
+          -DCMAKE_TOOLCHAIN_FILE=cmake/ios.toolchain.cmake \
+          -DGWE_TARGET=ipad \
+          -DCMAKE_BUILD_TYPE=Release
+
+    - name: Compilar
+      run: cmake --build build-ios --target pvz-greatwall
+
+    - name: Empaquetar .app
+      run: |
+        EXE=build-ios/pvz-greatwall.app/pvz-greatwall
+        file "$EXE"
+        echo "--- simbolos main (uno de cada uno):"; nm "$EXE" | grep -E " T _main$| T _SDL_main$" || (echo "FALTA main/SDL_main" && exit 1)
+        APP=Payload/PvZGreatWallHD.app
+        rm -rf Payload
+        mkdir -p "$APP/Base.lproj"
+        cp "$EXE" "$APP/pvz-greatwall"
+        cp ios-ipad/Info.plist "$APP/"
+        # Los iconos los pone actool desde ios-ipad/Assets.xcassets (el arte del HD)
+        ibtool --compile "$APP/Base.lproj/LaunchScreen.storyboardc" ios-ipad/LaunchScreen.storyboard
+        xcrun actool --compile "$APP" --platform iphoneos --minimum-deployment-target 15.0 --target-device ipad --app-icon AppIcon --output-partial-info-plist /tmp/actool-partial.plist --output-format human-readable-text ios-ipad/Assets.xcassets
+        plutil -lint "$APP/Info.plist"
+        # Todo menos el Info.plist original del IPA (2012): solo vale el nuestro
+        for f in assets/ipad/*; do
+          [ "$(basename "$f")" = "Info.plist" ] || cp -R "$f" "$APP/"
+        done
+        ls "$APP" | head -20
+
+    - name: Firma ad-hoc e IPA
+      run: |
+        codesign --force --deep --sign - --timestamp=none Payload/PvZGreatWallHD.app
+        codesign --verify --deep --strict Payload/PvZGreatWallHD.app
+        zip -qry PvZGreatWallHD-unsigned.ipa Payload
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: pvzgreatwall-hd-ios
+        path: PvZGreatWallHD-unsigned.ipa
+
+  build-greatwall-ipad-android:
+    name: Great Wall HD (iPad) for Android (arm64-v8a)
+    runs-on: ubuntu-latest
+    env:
+      IPA_ITEM: pvz-great-wall-edition-ios-ipa
+      IPA_NAME: "(TeoGaming201) PvZ GWE HD iPad.ipa"
+      IPAD_APP: "Payload/PvZ-iPad_ZH.app"
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ env.GREATWALL_REPO }}
+        token: ${{ secrets.GREATWALL_SOURCE_TOKEN || github.token }}
+        ref: ${{ inputs.source-ref || github.ref_name }}
+        fetch-depth: 0
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v4
+
+    - name: Plataforma, build-tools y NDK
+      run: |
+        yes | sdkmanager --licenses > /dev/null
+        sdkmanager --install "platforms;android-34" "build-tools;35.0.0" "ndk;27.0.12077973"
+
+    - name: Dependencias Python (generadores de tablas)
+      run: python -m pip install capstone unicorn
+
+    - name: Cache de assets y binario
+      uses: actions/cache@v4
+      with:
+        path: |
+          assets/ipad
+          bin/PvZ-iPad_ZH_1.9.10
+        key: gwe-assets-ipad-v1
+
+    - name: Binario, assets y tablas derivadas del binario del iPad
+      shell: bash
+      run: |
+        mkdir -p bin data/generated/ipad
+        if [ ! -f bin/PvZ-iPad_ZH_1.9.10 ]; then
+          python tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --get "$IPAD_APP/PvZ-iPad_ZH" --out bin/PvZ-iPad_ZH_1.9.10
+        fi
+        if [ ! -f assets/ipad/main.rsb ]; then
+          python tools/remote_zip.py --item "$IPA_ITEM" "$IPA_NAME" \
+            --extract assets/ipad --strip "$IPAD_APP/" \
+            --match "PvZ-iPad_ZH\.app/(main\.rsb|properties/|zh-Hans\.lproj/|compiled/|music/|store\.plist)"
+        fi
+        python tools/macho_symbols.py bin/PvZ-iPad_ZH_1.9.10 --stabs > data/debugmap_ipad.tsv
+        python tools/macho_symbols.py bin/PvZ-iPad_ZH_1.9.10 > data/gwe_ipad_symbols.txt
+        python tools/resgen.py --ipad
+        python tools/resglobals.py --ipad
+        python tools/layoutconsts.py --ipad
+        python tools/subgroups.py --ipad
+        python tools/lawntables.py --ipad
+        ls data/generated/ipad/
+
+    - name: APK (nativo + dex + firma debug)
+      run: python3 tools/android_apk.py --target ipad --out PvZGreatWallHD.apk
+
+    - name: Verificar firma y contenido
+      run: |
+        APKSIGNER=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | head -1)
+        "$APKSIGNER" verify PvZGreatWallHD.apk
+        unzip -l PvZGreatWallHD.apk | grep -E "classes.dex|lib/arm64-v8a/lib(main|SDL2)|assets/main.rsb|mipmap-xxxhdpi" || true
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: pvzgreatwall-hd-android
+        path: PvZGreatWallHD.apk
+
   release:
     name: Release (PvZ Great Wall)
-    needs: ['build-greatwall-windows', 'build-greatwall-ios', 'build-greatwall-android']
+    needs: ['build-greatwall-windows', 'build-greatwall-ios', 'build-greatwall-android',
+            'build-greatwall-ipad-windows', 'build-greatwall-ipad-ios', 'build-greatwall-ipad-android']
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -338,6 +620,12 @@ jobs:
         mv artifacts/pvzgreatwall-windows/zlib1.dll release_files/zlib1.dll
         mv artifacts/pvzgreatwall-ios/PvZGreatWall-unsigned.ipa release_files/pvzgreatwall-ios-arm64.ipa
         mv artifacts/pvzgreatwall-android/PvZGreatWall.apk release_files/pvzgreatwall-android-arm64-v8a.apk
+        # La variante HD (iPad): su .exe, su .ipa y su .apk
+        mv artifacts/pvzgreatwall-hd-windows/pvz-greatwall.exe release_files/pvzgreatwall-hd-windows-x86_64.exe
+        mv artifacts/pvzgreatwall-hd-windows/SDL2.dll release_files/SDL2-HD.dll
+        mv artifacts/pvzgreatwall-hd-windows/zlib1.dll release_files/zlib1-HD.dll
+        mv artifacts/pvzgreatwall-hd-ios/PvZGreatWallHD-unsigned.ipa release_files/pvzgreatwall-hd-ios-arm64.ipa
+        mv artifacts/pvzgreatwall-hd-android/PvZGreatWallHD.apk release_files/pvzgreatwall-hd-android-arm64-v8a.apk
         ls -lh release_files/
 
     - name: Create Release
