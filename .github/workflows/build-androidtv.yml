@@ -7,9 +7,10 @@
 # recetas son las de build.yml del repo fuente; los assets del juego (copyright
 # PopCap) los baja cada job, no estan en ningun repo.
 #
-# Setup (opcional): el repo fuente es publico y se lee con el token por
-# defecto. Si pasara a privado, crear un fine-grained PAT con Contents: Read en
-# ese repo y agregarlo como ANDROIDTV_SOURCE_TOKEN en este repo
+# Setup: el repo fuente es privado y se lee con ANDROIDTV_SOURCE_TOKEN de este
+# repo (fine-grained PAT con Contents: Read sobre IsraelDXPP/PvZ-AndroidTVDecomp).
+# Ese nombre va PRIMERO en cada checkout: PRIVATE_SOURCE_TOKEN solo alcanza a
+# PvZ-Advance y, al estar antes, lo capturaba y el fetch moria con 403.
 # (Settings > Secrets and variables > Actions). Para firmar el APK con una
 # clave propia, agregar ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
 # ANDROID_KEY_ALIAS y ANDROID_KEY_PASSWORD; sin ellas se usa la clave debug.
@@ -52,7 +53,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: ${{ env.SOURCE_REPO }}
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN || secrets.ANDROIDTV_SOURCE_TOKEN || github.token }}
+          token: ${{ secrets.ANDROIDTV_SOURCE_TOKEN || secrets.PRIVATE_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
           persist-credentials: false
@@ -144,7 +145,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: ${{ env.SOURCE_REPO }}
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN || secrets.ANDROIDTV_SOURCE_TOKEN || github.token }}
+          token: ${{ secrets.ANDROIDTV_SOURCE_TOKEN || secrets.PRIVATE_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
           persist-credentials: false
@@ -290,7 +291,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: ${{ env.SOURCE_REPO }}
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN || secrets.ANDROIDTV_SOURCE_TOKEN || github.token }}
+          token: ${{ secrets.ANDROIDTV_SOURCE_TOKEN || secrets.PRIVATE_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
           persist-credentials: false
