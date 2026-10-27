@@ -55,6 +55,7 @@ jobs:
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN || secrets.ANDROIDTV_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Dependencias del sistema (Linux)
         if: runner.os == 'Linux'
@@ -146,6 +147,7 @@ jobs:
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN || secrets.ANDROIDTV_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
@@ -291,6 +293,7 @@ jobs:
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN || secrets.ANDROIDTV_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Xcode y herramientas
         run: |
