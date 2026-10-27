@@ -240,7 +240,9 @@ jobs:
           # Sin shaders el renderizador no arranca. Los paquetes del repo cubren
           # lo que el zip no traiga.
           mkdir -p "$FILES_DIR/shaders"
-          cp -n Shaders/*.scbp "$FILES_DIR/shaders/"
+          for f in Shaders/*.scbp; do
+            [ -e "$FILES_DIR/shaders/$(basename "$f")" ] || cp "$f" "$FILES_DIR/shaders/"
+          done
           echo "Estructura assets:"; ls -la "$ASSET_ROOT"
           echo "Archivos en files/:"; find "$ASSET_ROOT/files" -type f | wc -l
           echo "Tamanio total:"; du -sh "$ASSET_ROOT"
@@ -396,7 +398,9 @@ jobs:
           fi
           # Sin shaders el renderizador no arranca (la app se cierra al iniciar).
           mkdir -p "$APP/assets/shaders"
-          cp -n Shaders/*.scbp "$APP/assets/shaders/"
+          for f in Shaders/*.scbp; do
+            [ -e "$APP/assets/shaders/$(basename "$f")" ] || cp "$f" "$APP/assets/shaders/"
+          done
           ls "$APP/assets" | head
 
       - name: Firma ad-hoc e IPA
