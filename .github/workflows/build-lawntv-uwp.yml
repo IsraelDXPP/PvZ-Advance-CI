@@ -1,0 +1,187 @@
+# Xbox Dev Mode UWP bootstrap for the public LawnTVDecomp source tree.
+#
+# This is intentionally labeled a platform bootstrap: it validates the x64
+# AppContainer, SDL2/WinRT, Xbox controller and bgfx D3D11 path. SDL3 removed
+# UWP support, so the complete game is attached only after its compatibility
+# layer is ready.
+name: LawnTV Xbox UWP bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      source-ref:
+        description: Branch or tag of LawnTVDecomp to build
+        required: true
+        default: main
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-lawntv-uwp.yml'
+
+concurrency:
+  group: lawntv-uwp-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_REPO: IsraelDXPP/PvZ-AndroidTVDecomp
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
+
+jobs:
+  xbox-uwp-x64:
+    name: Xbox One / Series UWP x64
+    runs-on: windows-2022
+    steps:
+      - name: Checkout LawnTVDecomp
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ inputs.source-ref || 'main' }}
+          fetch-depth: 0
+
+      - name: Set up MSVC UWP environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          uwp: true
+
+      - name: Ensure C++ UWP workload
+        shell: pwsh
+        run: |
+          $vs = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
+          $xamlTargets = Join-Path $vs 'MSBuild\Microsoft\WindowsXaml'
+          if (-not (Test-Path $xamlTargets)) {
+            $installer = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe'
+            if (-not (Test-Path $installer)) { throw 'Visual Studio installer not found' }
+            & $installer modify --installPath $vs `
+              --add Microsoft.VisualStudio.Workload.Universal `
+              --includeRecommended --quiet --norestart
+            if ($LASTEXITCODE -ne 0) { throw 'Installing the UWP workload failed' }
+          }
+
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja -y --no-progress
+
+      - name: Cache vcpkg repository
+        uses: actions/cache@v4
+        with:
+          path: vcpkg
+          key: lawntv-uwp-vcpkg-repo-${{ hashFiles('uwp/vcpkg.json') }}
+
+      - name: Use the project vcpkg baseline
+        shell: bash
+        run: |
+          set -e
+          if [ ! -d vcpkg/.git ]; then
+            git clone https://github.com/microsoft/vcpkg vcpkg
+          fi
+          baseline=$(python3 -c "import json; print(json.load(open('uwp/vcpkg.json'))['builtin-baseline'])")
+          git -C vcpkg fetch origin "$baseline" --depth 1 || git -C vcpkg fetch origin
+          git -C vcpkg checkout "$baseline"
+          ./vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          mkdir -p vcpkg-cache
+          echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Cache UWP dependencies
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: lawntv-uwp-x64-${{ hashFiles('uwp/vcpkg.json') }}
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --fresh --preset xbox-uwp-x64-release
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset xbox-uwp-x64-release --parallel
+
+      - name: Stage AppX payload
+        shell: pwsh
+        run: |
+          $build = 'build/xbox-uwp-x64-release'
+          $payload = 'appx'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item "$build/bin/Release/LawnTV.exe" $payload
+          Copy-Item "$build/uwp/Package.appxmanifest" "$payload/AppxManifest.xml"
+          Copy-Item -Recurse "$build/uwp/Assets" "$payload/Assets"
+
+          $uwpBin = 'vcpkg_installed/xbox-uwp-x64-release/x64-uwp/bin'
+          Get-ChildItem $uwpBin -Filter *.dll -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName $payload }
+          if (-not (Test-Path "$payload/SDL2.dll")) { throw 'SDL2.dll was not staged' }
+
+          # AppContainer CRT DLLs come from the UWP VCLibs framework package.
+          $vclibsRoot = 'C:\Program Files (x86)\Microsoft SDKs\Windows Kits\10\ExtensionSDKs\Microsoft.VCLibs'
+          $vclibs = Get-ChildItem $vclibsRoot -Recurse -Filter 'Microsoft.VCLibs.*.appx' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'x64' -and $_.Name -notmatch 'Debug|UWPDesktop' } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $vclibs) {
+            $download = Join-Path $env:RUNNER_TEMP 'lawntv-vclibs-download'
+            winget download --id Microsoft.VCLibs.14 -e --architecture x64 `
+              --accept-source-agreements --download-directory $download | Out-Null
+            $archive = Get-ChildItem $download -Recurse -Filter *.zip -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if ($archive) {
+              $expanded = Join-Path $env:RUNNER_TEMP 'lawntv-vclibs-expanded'
+              Expand-Archive -LiteralPath $archive.FullName -DestinationPath $expanded -Force
+              $vclibs = Get-ChildItem $expanded -Recurse -Filter 'Microsoft.VCLibs.140.00_*.appx' |
+                Where-Object { $_.Name -match 'x64' -and $_.Name -notmatch 'Debug|UWPDesktop' } |
+                Select-Object -First 1
+            }
+          }
+          if (-not $vclibs) { throw 'Microsoft.VCLibs x64 UWP framework package not found' }
+          $crt = Join-Path $env:RUNNER_TEMP 'lawntv-vclibs'
+          Expand-Archive -LiteralPath $vclibs.FullName -DestinationPath $crt -Force
+          @('vcruntime140_app.dll', 'vcruntime140_1_app.dll', 'msvcp140_app.dll',
+            'msvcp140_1_app.dll', 'msvcp140_2_app.dll', 'concrt140_app.dll',
+            'vccorlib140_app.dll') | ForEach-Object {
+              $file = Get-ChildItem $crt -Recurse -Filter $_ -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($file) { Copy-Item $file.FullName $payload }
+            }
+          Get-ChildItem $payload -Recurse | Select-Object FullName, Length
+
+      - name: Pack and sign AppX
+        shell: pwsh
+        env:
+          LAWNTV_UWP_SIGN_PFX: ${{ secrets.LAWNTV_UWP_SIGN_PFX }}
+          LAWNTV_UWP_SIGN_PASS: ${{ secrets.LAWNTV_UWP_SIGN_PASS }}
+        run: |
+          $sdk = 'C:\Program Files (x86)\Windows Kits\10\bin'
+          $makeappx = Get-ChildItem $sdk -Recurse -Filter makeappx.exe |
+            Where-Object FullName -Match '\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
+          $signtool = Get-ChildItem $sdk -Recurse -Filter signtool.exe |
+            Where-Object FullName -Match '\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx -or -not $signtool) { throw 'Windows SDK AppX tools not found' }
+
+          [xml]$manifest = Get-Content appx/AppxManifest.xml
+          $name = $manifest.Package.Identity.Name
+          $publisher = $manifest.Package.Identity.Publisher
+          $version = $manifest.Package.Identity.Version
+          $appx = "LawnTV-UWP_${version}_x64.appx"
+          & $makeappx.FullName pack /d appx /p $appx /o
+          if ($LASTEXITCODE -ne 0) { throw 'makeappx failed' }
+
+          $password = $env:LAWNTV_UWP_SIGN_PASS
+          if ($env:LAWNTV_UWP_SIGN_PFX) {
+            [IO.File]::WriteAllBytes('lawntv-sign.pfx', [Convert]::FromBase64String($env:LAWNTV_UWP_SIGN_PFX))
+          } else {
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $publisher -CertStoreLocation Cert:\CurrentUser\My
+            $password = [Guid]::NewGuid().ToString('N')
+            $secure = ConvertTo-SecureString $password -AsPlainText -Force
+            Export-PfxCertificate -Cert $cert -FilePath lawntv-sign.pfx -Password $secure -Force | Out-Null
+            Export-Certificate -Cert $cert -FilePath LawnTV-UWP-Dev.cer -Type CERT | Out-Null
+          }
+          & $signtool.FullName sign /f lawntv-sign.pfx /p $password /fd SHA256 /a $appx
+          if ($LASTEXITCODE -ne 0) { throw 'signtool failed' }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item $appx artifacts/
+          Copy-Item LawnTV-UWP-Dev.cer artifacts/ -ErrorAction SilentlyContinue
+          Copy-Item uwp/README.md artifacts/
+
+      - name: Upload signed bootstrap package
+        uses: actions/upload-artifact@v4
+        with:
+          name: LawnTV-xbox-uwp-bootstrap-x64
+          path: artifacts/
+          if-no-files-found: error
