@@ -32,11 +32,13 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout LawnTVDecomp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.ANDROIDTV_SOURCE_TOKEN || secrets.PRIVATE_SOURCE_TOKEN || github.token }}
           ref: ${{ inputs.source-ref || 'main' }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up MSVC UWP environment
         uses: ilammy/msvc-dev-cmd@v1
