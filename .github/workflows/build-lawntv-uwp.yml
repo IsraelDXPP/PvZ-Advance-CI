@@ -146,7 +146,13 @@ jobs:
           Copy-Item "$build/bin/Release/LawnTV.exe" $payload
           Copy-Item "$build/uwp/Package.appxmanifest" "$payload/AppxManifest.xml"
           Copy-Item -Recurse "$build/uwp/Assets" "$payload/Assets"
-          Copy-Item -Recurse 'uwp-game-assets/assets' "$payload/assets"
+          # AppX paths are case-insensitive. Package logos already occupy
+          # `Assets`, so merge the game asset root into that directory instead
+          # of creating the broken `Assets/assets/files` nesting.
+          Copy-Item 'uwp-game-assets/assets/*' "$payload/Assets" -Recurse -Force
+          if (-not (Test-Path "$payload/Assets/files/properties/levels.xml")) {
+            throw 'Packaged game assets are not at Assets/files'
+          }
 
           $uwpBin = 'vcpkg_installed/xbox-uwp-x64-release/x64-uwp/bin'
           Get-ChildItem $uwpBin -Filter *.dll -ErrorAction SilentlyContinue |
