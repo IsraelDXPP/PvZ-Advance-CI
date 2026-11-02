@@ -1,9 +1,10 @@
 # Xbox Dev Mode UWP bootstrap for the public LawnTVDecomp source tree.
 #
 # This is intentionally labeled a platform bootstrap: it validates the x64
-# AppContainer, SDL2/WinRT, Xbox controller and bgfx D3D11 path. SDL3 removed
-# UWP support, so the complete game is attached only after its compatibility
-# layer is ready.
+# AppContainer, SDL2/WinRT, Xbox controller and bgfx D3D11 path. It stages the
+# same external game-asset bundle as the Android/iOS jobs. SDL3 removed UWP
+# support, so the complete game is attached only after its compatibility layer
+# is ready.
 name: LawnTV Xbox UWP bootstrap
 
 on:
@@ -98,6 +99,44 @@ jobs:
         shell: pwsh
         run: cmake --build --preset xbox-uwp-x64-release --parallel
 
+      - name: Download and arrange game assets
+        shell: pwsh
+        env:
+          GAME_ASSETS_URL: https://drive.usercontent.google.com/download?id=1MxknxYw4Sx4h42ErvQhthv3dRCcfah9Q&export=download&confirm=t
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'lawntv-assets.zip'
+          $expanded = Join-Path $env:RUNNER_TEMP 'lawntv-assets-expanded'
+          curl.exe -L --fail --silent --show-error $env:GAME_ASSETS_URL -o $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
+
+          $levels = Get-ChildItem $expanded -Recurse -File -Filter levels.xml |
+            Where-Object { $_.Directory.Name -eq 'properties' } |
+            Select-Object -First 1
+          if (-not $levels) { throw 'The asset archive has no properties/levels.xml' }
+          $filesSource = $levels.Directory.Parent.FullName
+          $assetRoot = 'uwp-game-assets/assets'
+          $filesTarget = Join-Path $assetRoot 'files'
+          New-Item -ItemType Directory -Force -Path $filesTarget | Out-Null
+          Copy-Item (Join-Path $filesSource '*') $filesTarget -Recurse -Force
+
+          $mainPak = Get-ChildItem $expanded -Recurse -File -Filter main.pak | Select-Object -First 1
+          if ($mainPak) {
+            Copy-Item $mainPak.FullName (Join-Path $assetRoot 'main.pak') -Force
+          } else {
+            New-Item -ItemType File -Force -Path (Join-Path $assetRoot 'main.pak') | Out-Null
+          }
+
+          $shaderTarget = Join-Path $filesTarget 'shaders'
+          New-Item -ItemType Directory -Force -Path $shaderTarget | Out-Null
+          Get-ChildItem Shaders -Filter *.scbp | ForEach-Object {
+            $target = Join-Path $shaderTarget $_.Name
+            if (-not (Test-Path $target)) { Copy-Item $_.FullName $target }
+          }
+          $fileCount = (Get-ChildItem $filesTarget -Recurse -File).Count
+          if ($fileCount -lt 100) { throw "Asset staging produced only $fileCount files" }
+          if (-not (Get-ChildItem $shaderTarget -Filter *.scbp)) { throw 'No SCBP shaders were staged' }
+          Write-Host "Staged $fileCount game files"
+
       - name: Stage AppX payload
         shell: pwsh
         run: |
@@ -107,6 +146,7 @@ jobs:
           Copy-Item "$build/bin/Release/LawnTV.exe" $payload
           Copy-Item "$build/uwp/Package.appxmanifest" "$payload/AppxManifest.xml"
           Copy-Item -Recurse "$build/uwp/Assets" "$payload/Assets"
+          Copy-Item -Recurse 'uwp-game-assets/assets' "$payload/assets"
 
           $uwpBin = 'vcpkg_installed/xbox-uwp-x64-release/x64-uwp/bin'
           Get-ChildItem $uwpBin -Filter *.dll -ErrorAction SilentlyContinue |
