@@ -1,11 +1,8 @@
-# Xbox Dev Mode UWP bootstrap for the public LawnTVDecomp source tree.
+# Complete Xbox Dev Mode UWP build for the public LawnTVDecomp source tree.
 #
-# This is intentionally labeled a platform bootstrap: it validates the x64
-# AppContainer, SDL2/WinRT, Xbox controller and bgfx D3D11 path. It stages the
-# same external game-asset bundle as the Android/iOS jobs. SDL3 removed UWP
-# support, so the complete game is attached only after its compatibility layer
-# is ready.
-name: LawnTV Xbox UWP bootstrap
+# The game uses its SDL3 API compatibility layer over SDL2/WinRT, bgfx D3D11,
+# Xbox-compatible controllers and the same external asset bundle as Android/iOS.
+name: LawnTV Xbox UWP complete game
 
 on:
   workflow_dispatch:
@@ -63,10 +60,14 @@ jobs:
 
       - name: Install Ninja
         shell: pwsh
-        run: choco install ninja -y --no-progress
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y --no-progress
+          }
 
-      - name: Cache vcpkg repository
-        uses: actions/cache@v4
+      - name: Restore vcpkg repository
+        id: vcpkg-repository
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg
           key: lawntv-uwp-vcpkg-repo-${{ hashFiles('uwp/vcpkg.json') }}
@@ -85,19 +86,54 @@ jobs:
           mkdir -p vcpkg-cache
           echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
 
-      - name: Cache UWP dependencies
-        uses: actions/cache@v4
+      - name: Save vcpkg repository
+        if: steps.vcpkg-repository.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg
+          key: ${{ steps.vcpkg-repository.outputs.cache-primary-key }}
+
+      - name: Restore UWP dependency binaries
+        id: uwp-dependencies
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
-          key: lawntv-uwp-x64-${{ hashFiles('uwp/vcpkg.json') }}
+          key: lawntv-uwp-x64-release-v2-${{ hashFiles('uwp/vcpkg.json', 'cmake/triplets/lawn-x64-uwp.cmake') }}
+          restore-keys: |
+            lawntv-uwp-x64-release-v2-
+
+      - name: Restore incremental UWP build
+        id: uwp-build
+        uses: actions/cache/restore@v4
+        with:
+          path: build/xbox-uwp-x64-release
+          key: lawntv-uwp-build-v2-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'Lawn/**', 'Sexy/**', 'TodLib/**', 'uwp/**', 'Shaders/**') }}-${{ github.run_id }}
+          restore-keys: |
+            lawntv-uwp-build-v2-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'Lawn/**', 'Sexy/**', 'TodLib/**', 'uwp/**', 'Shaders/**') }}-
+            lawntv-uwp-build-v2-
 
       - name: Configure
         shell: pwsh
-        run: cmake --fresh --preset xbox-uwp-x64-release
+        run: cmake --preset xbox-uwp-x64-release
+
+      - name: Save UWP dependency binaries
+        if: steps.uwp-dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: ${{ steps.uwp-dependencies.outputs.cache-primary-key }}
 
       - name: Build
+        id: build
         shell: pwsh
         run: cmake --build --preset xbox-uwp-x64-release --parallel
+
+      - name: Save incremental UWP build
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: build/xbox-uwp-x64-release
+          key: ${{ steps.uwp-build.outputs.cache-primary-key }}
 
       - name: Download and arrange game assets
         shell: pwsh
@@ -154,7 +190,7 @@ jobs:
             throw 'Packaged game assets are not at Assets/files'
           }
 
-          $uwpBin = 'vcpkg_installed/xbox-uwp-x64-release/x64-uwp/bin'
+          $uwpBin = 'vcpkg_installed/xbox-uwp-x64-release/lawn-x64-uwp/bin'
           Get-ChildItem $uwpBin -Filter *.dll -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName $payload }
           if (-not (Test-Path "$payload/SDL2.dll")) { throw 'SDL2.dll was not staged' }
@@ -227,9 +263,9 @@ jobs:
           Copy-Item LawnTV-UWP-Dev.cer artifacts/ -ErrorAction SilentlyContinue
           Copy-Item uwp/README.md artifacts/
 
-      - name: Upload signed bootstrap package
+      - name: Upload signed complete-game package
         uses: actions/upload-artifact@v4
         with:
-          name: LawnTV-xbox-uwp-bootstrap-x64
+          name: LawnTV-xbox-uwp-complete-x64
           path: artifacts/
           if-no-files-found: error
