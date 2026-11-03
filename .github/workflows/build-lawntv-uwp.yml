@@ -336,6 +336,7 @@ jobs:
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Copy-Item $appx artifacts/
           Copy-Item LawnTV-UWP-Dev.cer artifacts/ -ErrorAction SilentlyContinue
+          Copy-Item build/xbox-uwp-x64-release/bin/Release/LawnTV.pdb artifacts/
           Copy-Item uwp/README.md artifacts/
 
       - name: Upload signed complete-game package
