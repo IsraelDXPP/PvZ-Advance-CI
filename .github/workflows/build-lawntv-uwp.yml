@@ -239,9 +239,11 @@ jobs:
 
           $shaderTarget = Join-Path $filesTarget 'shaders'
           New-Item -ItemType Directory -Force -Path $shaderTarget | Out-Null
+          # The source tree owns the renderer-compatible SCBP packages. The
+          # external asset archive may carry older copies for desktop builds.
           Get-ChildItem Shaders -Filter *.scbp | ForEach-Object {
             $target = Join-Path $shaderTarget $_.Name
-            if (-not (Test-Path $target)) { Copy-Item $_.FullName $target }
+            Copy-Item $_.FullName $target -Force
           }
           $fileCount = (Get-ChildItem $filesTarget -Recurse -File).Count
           if ($fileCount -lt 100) { throw "Asset staging produced only $fileCount files" }
