@@ -180,7 +180,7 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: cmake --preset xbox-uwp-x64-release
+        run: cmake --preset xbox-uwp-x64-release -DLAWN_GENERATE_SYMBOL_MAP=OFF
 
       - name: Save UWP dependency binaries
         if: steps.uwp-dependencies.outputs.cache-hit != 'true'
@@ -338,8 +338,17 @@ jobs:
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Copy-Item $appx artifacts/
           Copy-Item LawnTV-UWP-Dev.cer artifacts/ -ErrorAction SilentlyContinue
-          Copy-Item build/xbox-uwp-x64-release/bin/Release/LawnTV.pdb artifacts/
           Copy-Item uwp/README.md artifacts/
+
+      - name: Reject debug symbols
+        shell: pwsh
+        run: |
+          $symbols = Get-ChildItem artifacts -Recurse -File |
+            Where-Object { $_.Extension -in '.pdb', '.map', '.ilk', '.lib', '.exp' }
+          if ($symbols) {
+            $symbols | ForEach-Object { Write-Host $_.FullName }
+            throw 'the UWP artifact carries debug symbols'
+          }
 
       - name: Upload signed complete-game package
         uses: actions/upload-artifact@v4
