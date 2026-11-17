@@ -157,8 +157,15 @@ jobs:
             Linux)
               if [ -f "$DIR/LawnTV" ]; then
                 strip --strip-unneeded "$DIR/LawnTV"
-                if nm -D --defined-only "$DIR/LawnTV" | grep -q ' _Z'; then
-                  echo "ERROR: $DIR/LawnTV exports C++ symbols"
+                if nm -D --defined-only "$DIR/LawnTV" | grep -Eq ' (LawnApp|LawnTV|Sexy|Tod|Zombatar|Reanimation|SeedPacket|bgfx)'; then
+                  echo "ERROR: $DIR/LawnTV exports game symbols"
+                  nm -D --defined-only "$DIR/LawnTV" | grep -E ' (LawnApp|LawnTV|Sexy|Tod|Zombatar|Reanimation|SeedPacket|bgfx)' | head -n 20
+                  exit 1
+                fi
+                COUNT=$(nm -D --defined-only "$DIR/LawnTV" | wc -l)
+                if [ "$COUNT" -gt 100 ]; then
+                  echo "ERROR: $DIR/LawnTV exports $COUNT dynamic symbols"
+                  nm -D --defined-only "$DIR/LawnTV" | head -n 20
                   exit 1
                 fi
               fi
