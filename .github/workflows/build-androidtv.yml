@@ -122,16 +122,59 @@ jobs:
           key: ccache-${{ matrix.preset }}-${{ hashFiles('CMakeLists.txt', 'Lawn/**', 'Sexy/**', 'TodLib/**') }}
       - name: Configurar
         shell: bash
-        run: cmake --preset ${{ matrix.preset }} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset ${{ matrix.preset }} -DLAWN_GENERATE_SYMBOL_MAP=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Compilar
         shell: bash
         run: cmake --build --preset ${{ matrix.preset }} --parallel
 
+      - name: Remove debug symbols
+        shell: bash
+        run: |
+          set -e
+          DIR="build/${{ matrix.preset }}/bin/Release"
+          case "$RUNNER_OS" in
+            Windows)
+              SYMBOLS=$(find "$DIR" -maxdepth 2 \( -name '*.pdb' -o -name '*.map' -o -name '*.ilk' \) -print -quit)
+              if [ -n "$SYMBOLS" ]; then
+                echo "ERROR: the Release folder carries debug symbols: $SYMBOLS"
+                find "$DIR" -maxdepth 2 \( -name '*.pdb' -o -name '*.map' -o -name '*.ilk' \) -print
+                exit 1
+              fi
+              ;;
+            macOS)
+              xcrun -f dyld_info > /dev/null
+              for exe in "$DIR/LawnTV" "$DIR/LawnTV.app/Contents/MacOS/LawnTV"; do
+                if [ -f "$exe" ]; then
+                  strip -s "$exe"
+                  if xcrun dyld_info -exports "$exe" | grep -q '__Z'; then
+                    echo "ERROR: $exe exports C++ symbols"
+                    exit 1
+                  fi
+                fi
+              done
+              ;;
+            Linux)
+              if [ -f "$DIR/LawnTV" ]; then
+                strip --strip-unneeded "$DIR/LawnTV"
+                if nm -D --defined-only "$DIR/LawnTV" | grep -q ' _Z'; then
+                  echo "ERROR: $DIR/LawnTV exports C++ symbols"
+                  exit 1
+                fi
+              fi
+              ;;
+          esac
+
       - uses: actions/upload-artifact@v4
         with:
           name: LawnTV-${{ matrix.preset }}
-          path: build/${{ matrix.preset }}/bin/Release/
+          path: |
+            build/${{ matrix.preset }}/bin/Release/
+            !build/${{ matrix.preset }}/bin/Release/**/*.pdb
+            !build/${{ matrix.preset }}/bin/Release/**/*.map
+            !build/${{ matrix.preset }}/bin/Release/**/*.ilk
+            !build/${{ matrix.preset }}/bin/Release/**/*.lib
+            !build/${{ matrix.preset }}/bin/Release/**/*.exp
           if-no-files-found: error
 
   android:
@@ -276,6 +319,27 @@ jobs:
         working-directory: android
         run: sh ./gradlew :app:assembleRelease -PlawnAbis=${{ matrix.abi }} --no-daemon
 
+      - name: Check that the APK has no debug symbols
+        run: |
+          APK=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          rm -rf /tmp/apk-symbols
+          mkdir -p /tmp/apk-symbols
+          unzip -q "$APK" 'lib/*/*.so' -d /tmp/apk-symbols
+          if find /tmp/apk-symbols -name '*.so' -exec readelf -S {} \; | grep -Eq '\.debug_|\.symtab'; then
+            echo "ERROR: the APK carries native debug symbols: $APK"
+            exit 1
+          fi
+          LIB=$(find /tmp/apk-symbols -name 'libmain.so' -print -quit)
+          if readelf --dyn-syms -W "$LIB" | grep -Eq 'GLOBAL +DEFAULT +[0-9]+ _Z'; then
+            echo "ERROR: libmain.so exports C++ symbols: $APK"
+            readelf --dyn-syms -W "$LIB" | grep -E 'GLOBAL +DEFAULT +[0-9]+ _Z' | head -n 20
+            exit 1
+          fi
+          if ! readelf --dyn-syms -W "$LIB" | grep -q ' SDL_main$'; then
+            echo "ERROR: libmain.so does not export SDL_main, the Android entry point"
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: LawnTV-android-${{ matrix.abi }}
@@ -355,6 +419,12 @@ jobs:
           mkdir -p "$APP/Base.lproj"
           # Copiar el ejecutable al nuevo bundle
           cp "$EXE" "$APP/LawnTV"
+          # The IPA is published: remove the symbol table before signing.
+          strip -s "$APP/LawnTV"
+          if xcrun dyld_info -exports "$APP/LawnTV" | grep -q '__Z'; then
+            echo "ERROR: the IPA executable exports C++ symbols"
+            exit 1
+          fi
           # Info.plist base + assets
           cp ios/Info.plist "$APP/"
           plutil -lint "$APP/Info.plist"
@@ -427,6 +497,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Reject debug symbols
+        run: |
+          SYMBOLS=$(find artifacts \( -name '*.pdb' -o -name '*.map' -o -name '*.ilk' -o -name '*.lib' -o -name '*.exp' \) -print -quit)
+          if [ -n "$SYMBOLS" ]; then
+            echo "ERROR: debug symbols reached the release: $SYMBOLS"
+            find artifacts \( -name '*.pdb' -o -name '*.map' -o -name '*.ilk' -o -name '*.lib' -o -name '*.exp' \) -print
+            exit 1
+          fi
+          if find artifacts -name '*.so' -exec readelf -S {} \; | grep -Eq '\.debug_|\.symtab'; then
+            echo "ERROR: a native library in the release carries debug symbols"
+            exit 1
+          fi
 
       - name: Prepare Release Files
         run: |
