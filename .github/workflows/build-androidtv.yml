@@ -146,7 +146,7 @@ jobs:
               xcrun -f dyld_info > /dev/null
               for exe in "$DIR/LawnTV" "$DIR/LawnTV.app/Contents/MacOS/LawnTV"; do
                 if [ -f "$exe" ]; then
-                  strip -s "$exe"
+                  strip -x -S "$exe"
                   if xcrun dyld_info -exports "$exe" | grep -q '__Z'; then
                     echo "ERROR: $exe exports C++ symbols"
                     exit 1
@@ -420,14 +420,14 @@ jobs:
           fi
           EXE="$APP_BUNDLE/LawnTV"
           file "$EXE"
-          nm "$EXE" | grep -E " T _main$| T _SDL_main$" || (echo "FALTA main/SDL_main" && exit 1)
+          nm "$EXE" | grep -Eq ' [Tt] _main$| [Tt] _SDL_main$' || (echo "FALTA main/SDL_main" && exit 1)
           rm -rf Payload
           APP=Payload/LawnTV.app
           mkdir -p "$APP/Base.lproj"
           # Copiar el ejecutable al nuevo bundle
           cp "$EXE" "$APP/LawnTV"
-          # The IPA is published: remove the symbol table before signing.
-          strip -s "$APP/LawnTV"
+          # The IPA is published: remove local and debug symbols before signing.
+          strip -x -S "$APP/LawnTV"
           if xcrun dyld_info -exports "$APP/LawnTV" | grep -q '__Z'; then
             echo "ERROR: the IPA executable exports C++ symbols"
             exit 1
