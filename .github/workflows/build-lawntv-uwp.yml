@@ -213,12 +213,15 @@ jobs:
       - name: Download and arrange game assets
         shell: pwsh
         env:
-          GAME_ASSETS_URL: https://drive.usercontent.google.com/download?id=1MxknxYw4Sx4h42ErvQhthv3dRCcfah9Q&export=download&confirm=t
+          GAME_ASSETS_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'lawntv-assets.zip'
+          $archive = Join-Path $env:RUNNER_TEMP 'lawntv-assets.tar.gz'
           $expanded = Join-Path $env:RUNNER_TEMP 'lawntv-assets-expanded'
+          New-Item -ItemType Directory -Force -Path $expanded | Out-Null
           curl.exe -L --fail --silent --show-error $env:GAME_ASSETS_URL -o $archive
-          Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
+          # The archive of the assets branch has one top directory; strip it so the
+          # asset folders land directly in $expanded.
+          tar -xzf $archive -C $expanded --strip-components=1
 
           $levels = Get-ChildItem $expanded -Recurse -File -Filter levels.xml |
             Where-Object { $_.Directory.Name -eq 'properties' } |

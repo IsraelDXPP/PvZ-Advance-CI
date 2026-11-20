@@ -245,13 +245,16 @@ jobs:
 
       - name: Assets del juego (Android)
         env:
-          GAME_ASSETS_URL: https://drive.usercontent.google.com/download?id=1MxknxYw4Sx4h42ErvQhthv3dRCcfah9Q&export=download&confirm=t
+          GAME_ASSETS_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
         run: |
           set -e
-          curl -fsSL "$GAME_ASSETS_URL" -o /tmp/assets.zip
-          unzip -q /tmp/assets.zip -d /tmp/assets
+          mkdir -p /tmp/assets
+          curl -fsSL "$GAME_ASSETS_URL" -o /tmp/assets.download
+          if ! unzip -qq -o /tmp/assets.download -d /tmp/assets 2>/dev/null; then
+            tar -xzf /tmp/assets.download -C /tmp/assets --strip-components=1
+          fi
           # El juego espera: assets/main.pak (pack) + assets/files/ (archivos sueltos).
-          # El zip de Drive trae subcarpetas: properties/, images/, reanim/, etc.
+          # El archivo de assets trae subcarpetas: properties/, images/, reanim/, etc.
           # Las copiamos a src/main/assets/files/ y nos aseguramos de que main.pak exista.
           ASSET_ROOT=android/app/src/main/assets
           FILES_DIR=$ASSET_ROOT/files
@@ -267,7 +270,6 @@ jobs:
             # Ensure shaders and compiled reanims are present (collect from any location).
             mkdir -p "$FILES_DIR/shaders" "$FILES_DIR/compiled/reanim"
             find /tmp/assets -name '*.scbp' -exec cp {} "$FILES_DIR/shaders/" \; 2>/dev/null || true
-            find /tmp/assets -name '*.compiled' -exec cp {} "$FILES_DIR/compiled/reanim/" \; 2>/dev/null || true
           else
             # Zip plano: clasificar por extensión en files/ subcarpetas
             mkdir -p "$FILES_DIR/properties" "$FILES_DIR/images" "$FILES_DIR/reanim" \
@@ -444,10 +446,13 @@ jobs:
 
       - name: Assets del juego
         env:
-          GAME_ASSETS_URL: https://drive.usercontent.google.com/download?id=1MxknxYw4Sx4h42ErvQhthv3dRCcfah9Q&export=download&confirm=t
+          GAME_ASSETS_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
         run: |
-          curl -fsSL "$GAME_ASSETS_URL" -o /tmp/assets.zip
-          unzip -q /tmp/assets.zip -d /tmp/assets
+          mkdir -p /tmp/assets
+          curl -fsSL "$GAME_ASSETS_URL" -o /tmp/assets.download
+          if ! unzip -qq -o /tmp/assets.download -d /tmp/assets 2>/dev/null; then
+            tar -xzf /tmp/assets.download -C /tmp/assets --strip-components=1
+          fi
           # El zip de Drive trae properties/, images/, reanim/, data/, sounds/
           # y shaders/ directamente; el juego lee properties/levels.xml y
           # resources.xml con SetDefaults path="images|reanim|data|sounds".
@@ -461,7 +466,6 @@ jobs:
             fi
             mkdir -p "$APP/assets/shaders" "$APP/assets/compiled/reanim"
             find /tmp/assets -name '*.scbp' -exec cp {} "$APP/assets/shaders/" \; 2>/dev/null || true
-            find /tmp/assets -name '*.compiled' -exec cp {} "$APP/assets/compiled/reanim/" \; 2>/dev/null || true
           else
             mkdir -p "$APP/assets/properties" "$APP/assets/images" "$APP/assets/reanim" \
                      "$APP/assets/data" "$APP/assets/sounds" "$APP/assets/shaders" \
@@ -470,7 +474,6 @@ jobs:
             mv /tmp/assets/*.txt "$APP/assets/data/" 2>/dev/null || true
             mv /tmp/assets/*.{ogg,wav,xm,mpg} "$APP/assets/sounds/" 2>/dev/null || true
             find /tmp/assets -name '*.scbp' -exec cp {} "$APP/assets/shaders/" \; 2>/dev/null || true
-            find /tmp/assets -name '*.compiled' -exec cp {} "$APP/assets/compiled/reanim/" \; 2>/dev/null || true
             mv /tmp/assets/*.png /tmp/assets/*.jpg /tmp/assets/*.gif "$APP/assets/images/" 2>/dev/null || true
           fi
           # Sin shaders el renderizador no arranca (la app se cierra al iniciar).
