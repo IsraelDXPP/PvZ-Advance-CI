@@ -1,14 +1,14 @@
-# Complete Xbox Dev Mode UWP build for the public LawnTVDecomp source tree.
+# Complete Xbox Dev Mode UWP build for the public PvZ-AdvanceTX source tree.
 #
 # The game uses its SDL3 API compatibility layer over SDL2/WinRT, bgfx D3D11,
 # Xbox-compatible controllers and the same external asset bundle as Android/iOS.
-name: LawnTV Xbox UWP complete game
+name: PvZ-AdvanceTX Xbox UWP complete game
 
 on:
   workflow_dispatch:
     inputs:
       source-ref:
-        description: Branch or tag of LawnTVDecomp to build
+        description: Branch or tag of PvZ-AdvanceTX to build
         required: true
         default: main
   push:
@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOURCE_REPO: IsraelDXPP/PvZ-AndroidTVDecomp
+  SOURCE_REPO: IsraelDXPP/PvZ-AdvanceTX
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
     name: Xbox One / Series UWP x64
     runs-on: windows-2022
     steps:
-      - name: Checkout LawnTVDecomp
+      - name: Checkout PvZ-AdvanceTX
         uses: actions/checkout@v6
         with:
           repository: ${{ env.SOURCE_REPO }}

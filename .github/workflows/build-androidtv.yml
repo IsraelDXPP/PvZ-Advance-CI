@@ -1,5 +1,5 @@
-# CI build para IsraelDXPP/PvZ-AndroidTVDecomp (decompilacion de PvZ TV /
-# Android con SDL3 + bgfx).
+# CI build para IsraelDXPP/PvZ-AdvanceTX (decompilacion de PvZ orientada a
+# consolas, basada en TV/Android v115 con referencia Xbox 360, SDL3 + bgfx).
 #
 # Mismo sistema que build.yml y build-greatwall.yml: este repo hace checkout
 # del repo fuente y compila todas las plataformas: escritorio (Windows x64/x86,
@@ -8,20 +8,20 @@
 # PopCap) los baja cada job, no estan en ningun repo.
 #
 # Setup: el repo fuente es privado y se lee con ANDROIDTV_SOURCE_TOKEN de este
-# repo (fine-grained PAT con Contents: Read sobre IsraelDXPP/PvZ-AndroidTVDecomp).
+# repo (fine-grained PAT con Contents: Read sobre IsraelDXPP/PvZ-AdvanceTX).
 # Ese nombre va PRIMERO en cada checkout: PRIVATE_SOURCE_TOKEN solo alcanza a
 # PvZ-Advance y, al estar antes, lo capturaba y el fetch moria con 403.
 # (Settings > Secrets and variables > Actions). Para firmar el APK con una
 # clave propia, agregar ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
 # ANDROID_KEY_ALIAS y ANDROID_KEY_PASSWORD; sin ellas se usa la clave debug.
 
-name: CI build (PvZ AndroidTV Decomp)
+name: CI build (PvZ-AdvanceTX)
 
 on:
   workflow_dispatch:
     inputs:
       source-ref:
-        description: 'Branch or tag of IsraelDXPP/PvZ-AndroidTVDecomp to build'
+        description: 'Branch or tag of IsraelDXPP/PvZ-AdvanceTX to build'
         required: true
         default: 'main'
   push:
@@ -33,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOURCE_REPO: IsraelDXPP/PvZ-AndroidTVDecomp
+  SOURCE_REPO: IsraelDXPP/PvZ-AdvanceTX
 
 jobs:
   desktop:
