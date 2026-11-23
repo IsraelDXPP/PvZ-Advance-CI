@@ -481,6 +481,11 @@ jobs:
           for f in Shaders/*.scbp; do
             [ -e "$APP/assets/shaders/$(basename "$f")" ] || cp "$f" "$APP/assets/shaders/"
           done
+          # Config solo de iOS (setup.ios.env del repo fuente). Los refs viejos
+          # que se compilan con source-ref todavia no traen el archivo.
+          if [ -f ios/setup.ios.env ]; then
+            cp ios/setup.ios.env "$APP/assets/setup.ios.env"
+          fi
           ls "$APP/assets" | head
 
       - name: Firma ad-hoc e IPA
