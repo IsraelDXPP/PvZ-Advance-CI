@@ -24,6 +24,13 @@ on:
         description: 'Branch or tag of IsraelDXPP/PvZ-AdvanceTX to build'
         required: true
         default: 'main'
+      assets:
+        description: 'Assets del juego: normal (los actuales) o 2pak (Luminord08 2Pak)'
+        type: choice
+        options:
+          - normal
+          - 2pak
+        default: normal
   push:
     branches: [ "main" ]
     tags: [ "*" ]
@@ -245,9 +252,22 @@ jobs:
 
       - name: Assets del juego (Android)
         env:
-          GAME_ASSETS_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
+          # Compilacion manual: `assets` elige normal (PvZ-Advance-Assets, los
+          # assets actuales) o 2pak (PvZ-Advance-Assets-2Pak, Luminord08). Un push
+          # usa la variable GAME_ASSETS_PACK o, si no existe, el juego normal.
+          ASSET_PACK: ${{ inputs.assets || vars.GAME_ASSETS_PACK || 'normal' }}
+          ASSETS_NORMAL_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
+          ASSETS_2PAK_URL: ${{ vars.GAME_ASSETS_2PAK_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets-2Pak/archive/refs/heads/main.tar.gz' }}
         run: |
           set -e
+          # Juego de assets de esta compilacion: normal (los actuales) o 2pak.
+          if [ "$ASSET_PACK" = "2pak" ]; then
+            GAME_ASSETS_URL="$ASSETS_2PAK_URL"
+          else
+            GAME_ASSETS_URL="$ASSETS_NORMAL_URL"
+          fi
+          echo "Assets: $ASSET_PACK -> $GAME_ASSETS_URL"
+          echo "### Game assets: **$ASSET_PACK**" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           mkdir -p /tmp/assets
           curl -fsSL "$GAME_ASSETS_URL" -o /tmp/assets.download
           if ! unzip -qq -o /tmp/assets.download -d /tmp/assets 2>/dev/null; then
@@ -456,8 +476,21 @@ jobs:
 
       - name: Assets del juego
         env:
-          GAME_ASSETS_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
+          # Compilacion manual: `assets` elige normal (PvZ-Advance-Assets, los
+          # assets actuales) o 2pak (PvZ-Advance-Assets-2Pak, Luminord08). Un push
+          # usa la variable GAME_ASSETS_PACK o, si no existe, el juego normal.
+          ASSET_PACK: ${{ inputs.assets || vars.GAME_ASSETS_PACK || 'normal' }}
+          ASSETS_NORMAL_URL: ${{ vars.GAME_ASSETS_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets/archive/refs/heads/main.tar.gz' }}
+          ASSETS_2PAK_URL: ${{ vars.GAME_ASSETS_2PAK_URL || 'https://github.com/IsraelDXPP/PvZ-Advance-Assets-2Pak/archive/refs/heads/main.tar.gz' }}
         run: |
+          # Juego de assets de esta compilacion: normal (los actuales) o 2pak.
+          if [ "$ASSET_PACK" = "2pak" ]; then
+            GAME_ASSETS_URL="$ASSETS_2PAK_URL"
+          else
+            GAME_ASSETS_URL="$ASSETS_NORMAL_URL"
+          fi
+          echo "Assets: $ASSET_PACK -> $GAME_ASSETS_URL"
+          echo "### Game assets: **$ASSET_PACK**" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           mkdir -p /tmp/assets
           curl -fsSL "$GAME_ASSETS_URL" -o /tmp/assets.download
           if ! unzip -qq -o /tmp/assets.download -d /tmp/assets 2>/dev/null; then
@@ -549,7 +582,9 @@ jobs:
   release:
     name: Release (PvZ AndroidTV Decomp)
     needs: ['desktop', 'android', 'ios']
-    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+    # Una corrida manual con el juego 2pak no publica la release "latest": esa
+    # release es la compilacion con los assets normales.
+    if: (github.ref_type == 'tag' || github.ref == 'refs/heads/main') && inputs.assets != '2pak'
     runs-on: ubuntu-latest
     permissions:
       contents: write
