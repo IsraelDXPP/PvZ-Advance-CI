@@ -488,6 +488,35 @@ jobs:
           fi
           ls "$APP/assets" | head
 
+      - name: Check the iOS diagnostics
+        run: |
+          # The device is the only place the black-screen question is answered,
+          # so a build that silently lost its diagnostics wastes a device run.
+          # Say what the IPA will switch on, and fail if the code is missing.
+          {
+            echo "### iOS diagnostics in this IPA"
+            if [ -f "$APP/assets/setup.ios.env" ]; then
+              echo "setup.ios.env is in the bundle, active entries:"
+              echo '```'
+              grep -Ev '^[[:space:]]*(#|$)' "$APP/assets/setup.ios.env" || echo "(none)"
+              echo '```'
+            else
+              echo "No setup.ios.env in the bundle: every diagnostic is off."
+            fi
+          } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          # Only when the overlay asks for diagnostics: a ref built before they
+          # existed (source-ref) packages without them and must still pass.
+          # The executable is stripped, but string literals survive.
+          if [ -f "$APP/assets/setup.ios.env" ] && grep -Eq '^[[:space:]]*LAWN_IOS_DIAG=[1-9a-z]' "$APP/assets/setup.ios.env"; then
+            for option in LAWN_IOS_DIAG LAWN_IOS_DIAG_DUMP_FRAME; do
+              if ! strings -a "$APP/LawnTV" | grep -q "$option"; then
+                echo "ERROR: setup.ios.env enables the diagnostics but the executable does not carry $option"
+                exit 1
+              fi
+            done
+            echo "diagnostics code present in the executable"
+          fi
+
       - name: Firma ad-hoc e IPA
         run: |
           codesign --force --deep --sign - --timestamp=none "$APP"
