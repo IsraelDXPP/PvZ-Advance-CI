@@ -429,9 +429,7 @@ jobs:
 
       - name: Configurar (iOS arm64)
         run: |
-          # -g: the symbols artifact (LawnTV-ios-symbols) needs DWARF to turn a
-          # device crash report into function names. The IPA is still stripped.
-          cmake --preset ios-arm64-release -DCMAKE_C_FLAGS=-g -DCMAKE_CXX_FLAGS=-g -DCMAKE_OBJCXX_FLAGS=-g
+          cmake --preset ios-arm64-release
           cmake --build --preset ios-arm64-release --parallel
 
       - name: Empaquetar .app
@@ -450,14 +448,6 @@ jobs:
           mkdir -p "$APP/Base.lproj"
           # Copiar el ejecutable al nuevo bundle
           cp "$EXE" "$APP/LawnTV"
-          # Symbols for crash analysis, kept out of the IPA and out of the release:
-          # the unstripped executable, its dSYM and its UUID (the crash report's
-          # slice_uuid must match it).
-          rm -rf symbols
-          mkdir -p symbols
-          cp "$EXE" symbols/LawnTV
-          xcrun dsymutil symbols/LawnTV -o symbols/LawnTV.dSYM
-          xcrun dwarfdump --uuid symbols/LawnTV | tee symbols/uuid.txt
           # The IPA is published: remove local and debug symbols before signing.
           strip -x -S "$APP/LawnTV"
           if xcrun dyld_info -exports "$APP/LawnTV" | grep -q '__Z'; then
@@ -572,13 +562,6 @@ jobs:
           name: LawnTV-unsigned-ipa
           path: ${{ env.IPA_NAME }}
 
-      - name: Upload the iOS symbols (not released)
-        uses: actions/upload-artifact@v4
-        with:
-          name: LawnTV-ios-symbols
-          path: symbols
-          if-no-files-found: error
-
   release:
     name: Release (PvZ AndroidTV Decomp)
     needs: ['desktop', 'android', 'ios']
@@ -596,8 +579,6 @@ jobs:
 
       - name: Reject debug symbols
         run: |
-          # LawnTV-ios-symbols is a crash-analysis artifact, never a release file.
-          rm -rf artifacts/LawnTV-ios-symbols
           SYMBOLS=$(find artifacts \( -name '*.pdb' -o -name '*.map' -o -name '*.ilk' -o -name '*.lib' -o -name '*.exp' \) -print -quit)
           if [ -n "$SYMBOLS" ]; then
             echo "ERROR: debug symbols reached the release: $SYMBOLS"
