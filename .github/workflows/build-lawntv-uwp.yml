@@ -248,6 +248,10 @@ jobs:
             $target = Join-Path $shaderTarget $_.Name
             Copy-Item $_.FullName $target -Force
           }
+          # Texts of AdvanceTX Options and the cheat menu: the asset archive does not carry them.
+          $propTarget = Join-Path $filesTarget 'properties'
+          New-Item -ItemType Directory -Force -Path $propTarget | Out-Null
+          Copy-Item 'Tools/properties/AdvanceTXStrings.txt' $propTarget -Force
           $fileCount = (Get-ChildItem $filesTarget -Recurse -File).Count
           if ($fileCount -lt 100) { throw "Asset staging produced only $fileCount files" }
           if (-not (Get-ChildItem $shaderTarget -Filter *.scbp)) { throw 'No SCBP shaders were staged' }

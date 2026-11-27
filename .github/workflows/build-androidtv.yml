@@ -315,6 +315,9 @@ jobs:
           for f in Shaders/*.scbp; do
             [ -e "$FILES_DIR/shaders/$(basename "$f")" ] || cp "$f" "$FILES_DIR/shaders/"
           done
+          # Texts of AdvanceTX Options and the cheat menu: the asset archive does not carry them.
+          mkdir -p "$FILES_DIR/properties"
+          cp Tools/properties/AdvanceTXStrings.txt "$FILES_DIR/properties/AdvanceTXStrings.txt"
           echo "Estructura assets:"; ls -la "$ASSET_ROOT"
           echo "Archivos en files/:"; find "$ASSET_ROOT/files" -type f | wc -l
           echo "Tamanio total:"; du -sh "$ASSET_ROOT"
@@ -514,6 +517,9 @@ jobs:
           for f in Shaders/*.scbp; do
             [ -e "$APP/assets/shaders/$(basename "$f")" ] || cp "$f" "$APP/assets/shaders/"
           done
+          # Texts of AdvanceTX Options and the cheat menu: the asset archive does not carry them.
+          mkdir -p "$APP/assets/properties"
+          cp Tools/properties/AdvanceTXStrings.txt "$APP/assets/properties/AdvanceTXStrings.txt"
           # Config solo de iOS (setup.ios.env del repo fuente). Los refs viejos
           # que se compilan con source-ref todavia no traen el archivo.
           if [ -f ios/setup.ios.env ]; then
